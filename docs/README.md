@@ -1,0 +1,2 @@
+## Docs
+This directory contains project-related documentation, including planning notes, deadlines, user stories, images and other supporting materials that guide the development process and track progress.
