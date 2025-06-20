@@ -1,0 +1,20 @@
+<resources>
+    <!-- Common colors -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- Primary colors (dark mode values) -->
+    <color name="eco_green">#66BB6A</color>
+    <color name="eco_dark_green">#1B5E20</color>
+
+    <!-- Accent colors (dark mode values) -->
+    <color name="eco_accent">#FFB74D</color>
+    <color name="eco_accent_dark">#FF8F00</color>
+
+    <!-- Background colors (dark mode values) -->
+    <color name="eco_background">#0D1B0F</color>
+    <color name="eco_surface">#1A2C1D</color>
+
+    <!-- Text colors (dark mode values) -->
+    <color name="eco_text">#E8F5E8</color>
+</resources>
