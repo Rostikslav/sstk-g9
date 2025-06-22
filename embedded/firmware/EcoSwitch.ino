@@ -19,8 +19,8 @@
 #define BLUE D8
 
 // UDP
-#define BROADCAST_INTERVAL 1000   // 1sec
-#define BROADCAST_DURATION 60000  // 1min
+#define BROADCAST_INTERVAL 1000    // 1sec
+#define BROADCAST_DURATION 120000  // 2min
 
 // temp sensor
 #define TEMP_CUTOFF 50.0
@@ -71,7 +71,7 @@ bool auth() {
     return true;
 }
 
-// validates token
+// check the sensor availability
 bool checkSensor() {
     if (!bmp.begin()) {
         server.send(500, "text/plain", "Temperature sensor is not detected");
@@ -143,6 +143,7 @@ void handleToggleState() {
     updateLedState();
 }
 
+// set/reset timer
 void handleTimer() {
     if (!auth() || !checkSensor())
         return;
@@ -201,9 +202,20 @@ void handleTemperature() {
     }
 }
 
+// forget connected device and reboot
+void handleDisconnect() {
+    if (!auth())
+        return;
+
+    clearToken();
+    server.send(200, "text/plain", "Successfully disconnected");
+    delay(1000);
+    ESP.restart();
+}
+
 void setup() {
     pinMode(SWITCH_PIN, OUTPUT);
-    pinMode(RESET_PIN, INPUT_PULLUP);
+    pinMode(RESET_PIN, INPUT);
 
     pinMode(RED, OUTPUT);
     pinMode(GREEN, OUTPUT);
@@ -257,10 +269,11 @@ void setup() {
 
     server.on("/ping", handlePing);
     server.on("/setup", handleSetup);
-    server.on("/toggle", handleToggleState);
     server.on("/status", handleState);
-    server.on("/timer", handleTimer);
     server.on("/temperature", handleTemperature);
+    server.on("/toggle", handleToggleState);
+    server.on("/timer", handleTimer);
+    server.on("/disconnect", handleDisconnect);
     server.begin();
 }
 
