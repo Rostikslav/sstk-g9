@@ -83,7 +83,7 @@ fun EcoSwitchApp() {
                 device = device,
                 isConnecting = isConnecting,
                 onConnect = {
-                    scope.launch {
+                   scope.launch {
                         isConnecting = true
                         ConnectionManager.findAndConnectDevice { success, connectedDevice ->
                             isConnecting = false
