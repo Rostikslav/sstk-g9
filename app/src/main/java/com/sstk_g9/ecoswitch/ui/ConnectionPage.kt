@@ -48,6 +48,7 @@ fun ConnectionPage(
             device?.isConnected == null -> {
                 // No device connected
                 Button(
+
                     onClick = if (isConnecting) {
                         onStopConnecting
                     } else {
