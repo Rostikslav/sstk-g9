@@ -2,9 +2,11 @@ package com.sstk_g9.ecoswitch.ui
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -29,6 +30,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -43,9 +46,14 @@ import androidx.compose.ui.unit.sp
 import com.sstk_g9.ecoswitch.R
 import com.sstk_g9.ecoswitch.model.EcoSwitch
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -61,29 +69,48 @@ import kotlinx.coroutines.launch
 @Composable
 fun DeviceControlPage(
     device: EcoSwitch,
-    onToggle: (EcoSwitch) -> Unit,
+    onToggle: suspend (EcoSwitch) -> Unit,
     onDisconnect: () -> Unit,
     onStatusUpdate: (EcoSwitch?) -> Unit
 ) {
     val focusManager = LocalFocusManager.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var isStartMode by remember { mutableStateOf(true) }
+    var isToggling by remember { mutableStateOf(false) }
 
     val hoursFocusRequester = remember { FocusRequester() }
     val minutesFocusRequester = remember { FocusRequester() }
     val secondsFocusRequester = remember { FocusRequester() }
 
+    // Status update (temperature, toggle and timer)
     LaunchedEffect(device.ipAddress) {
-        while (device.isConnected) {
+        while (device.isConnected && !isToggling) {
             val updated = PowerManager.checkDeviceStatus(device)
             onStatusUpdate(updated)
             delay(3_000)
         }
     }
-    LaunchedEffect(Unit) { // Führe dies nur einmal aus, wenn die Composable erstellt wird
-        // Beispiel: Setze einen Standard-Timer von 1 Minute, wenn die Seite geladen wird
-        // Dies wird nur gesetzt, wenn der Timer nicht bereits läuft oder editiert wird.
-        TimerManager.setInitialTime(0, 1, 0)
+
+    // Initial setup when page loads
+    LaunchedEffect(device.ipAddress) {
+        TimerManager.setDevice(device)
+        val updatedDevice = PowerManager.checkDeviceStatus(device)
+        updatedDevice.let { freshDevice ->
+            onStatusUpdate(freshDevice)
+            TimerManager.sync(freshDevice)
+        }
+        TimerManager.setOnTimerFinishedCallback { deviceWithTimerOff ->
+            scope.launch {
+                Toast.makeText(context, "Timer finished!", Toast.LENGTH_LONG).show()
+                deviceWithTimerOff?.let { device ->
+                    onStatusUpdate(device)
+                }
+            }
+        }
+
+        if (!device.isTimerActive)
+            TimerManager.setInitialTime(0, 15, 0)
     }
 
     LaunchedEffect(TimerManager.isEditingTime) {
@@ -93,9 +120,9 @@ fun DeviceControlPage(
         }
     }
 
-    // 2. cancelEditMode() verwenden - mit BackHandler und optional einem Button
+    // cancel edit mode with android back button
     if (TimerManager.isEditingTime) {
-        BackHandler { // Android-Zurücktaste fängt den Edit-Modus ab
+        BackHandler {
             TimerManager.cancelEditMode()
             focusManager.clearFocus()
         }
@@ -104,13 +131,25 @@ fun DeviceControlPage(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(16.dp)
+            // stop edit timer mode if clicked outside timer input fields
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null // no visuals
+            ) {
+                if (TimerManager.isEditingTime) {
+                    scope.launch {
+                        TimerManager.saveEditedTimeAndExitEditMode()
+                        focusManager.clearFocus() // hide keyboard
+                    }
+                }
+            },
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Device status section
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
         ) {
             Spacer(modifier = Modifier.height(40.dp))
 
@@ -162,21 +201,9 @@ fun DeviceControlPage(
                 }
             }
         }
-        //Timer
+        // Timer
         Column(
-            modifier = Modifier
-                .weight(1f) // Nimmt den verbleibenden Hauptplatz ein
-                // Klick außerhalb der Timer-Eingabefelder, um Edit-Modus zu beenden (mit Speichern)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null // Kein visueller Effekt für diesen äußeren Klick
-                ) {
-                    if (TimerManager.isEditingTime) {
-                        TimerManager.saveEditedTimeAndExitEditMode()
-                        focusManager.clearFocus() // Tastatur ausblenden
-                    }
-                }
-                .padding(bottom = 0.dp), // Kein extra Padding unten, da der Disconnect Button separat ist
+            modifier = Modifier.weight(1f),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
@@ -189,7 +216,7 @@ fun DeviceControlPage(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.clickable( // Verhindere Klick-Propagation nach außen für die Eingabefeld-Reihe
+                    modifier = Modifier.clickable( // do nothing if clicked outside input fields to prevent outward propagation
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
                     ) {}
@@ -201,7 +228,6 @@ fun DeviceControlPage(
                                 newValue.filter(Char::isDigit)
                             if (newValue.length == 2) minutesFocusRequester.requestFocus()
                         },
-                        label = "HH",
                         modifier = Modifier.focusRequester(hoursFocusRequester),
                         keyboardActions = KeyboardActions(onNext = { minutesFocusRequester.requestFocus() })
                     )
@@ -218,7 +244,6 @@ fun DeviceControlPage(
                                 newValue.filter(Char::isDigit)
                             if (newValue.length == 2) secondsFocusRequester.requestFocus()
                         },
-                        label = "MM",
                         modifier = Modifier.focusRequester(minutesFocusRequester),
                         keyboardActions = KeyboardActions(onNext = { secondsFocusRequester.requestFocus() })
                     )
@@ -234,18 +259,19 @@ fun DeviceControlPage(
                             if (newValue.length <= 2) TimerManager.editSecondsInput =
                                 newValue.filter(Char::isDigit)
                         },
-                        label = "SS",
                         modifier = Modifier.focusRequester(secondsFocusRequester),
                         imeAction = ImeAction.Done,
                         keyboardActions = KeyboardActions(onDone = {
-                            TimerManager.saveEditedTimeAndExitEditMode()
-                            focusManager.clearFocus()
+                            scope.launch {
+                                TimerManager.saveEditedTimeAndExitEditMode()
+                                focusManager.clearFocus()
+                            }
                         })
                     )
                 }
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    // Expliziter "Abbrechen"-Button
+                    // Cancel button
                     IconButton(onClick = {
                         TimerManager.cancelEditMode()
                         focusManager.clearFocus()
@@ -256,10 +282,12 @@ fun DeviceControlPage(
                             tint = colorResource(R.color.eco_accent_dark)
                         )
                     }
-                    // Expliziter "Speichern"-Button
+                    // Save button
                     IconButton(onClick = {
-                        TimerManager.saveEditedTimeAndExitEditMode()
-                        focusManager.clearFocus()
+                        scope.launch {
+                            TimerManager.saveEditedTimeAndExitEditMode()
+                            focusManager.clearFocus()
+                        }
                     }) {
                         Icon(
                             Icons.Filled.CheckCircle,
@@ -269,13 +297,13 @@ fun DeviceControlPage(
                     }
                 }
             } else {
-                Text( // Anzeige-Modus
+                Text( // Countdown mode
                     text = "%02d:%02d:%02d".format(
                         TimerManager.displayHours,
                         TimerManager.displayMinutes,
                         TimerManager.displaySeconds
                     ),
-                    fontSize = 64.sp,
+                    fontSize = 60.sp,
                     fontWeight = FontWeight.Bold,
                     color = colorResource(R.color.eco_text),
                     modifier = Modifier.clickable {
@@ -292,35 +320,79 @@ fun DeviceControlPage(
             Spacer(modifier = Modifier.height(32.dp))
 
             if (!TimerManager.isEditingTime) {
-                TimerActionButton(
-                    text = if (TimerManager.isTimerRunning) "Stop" else "Start",
-                    onClick = {
-                        scope.launch {
-                            TimerManager.startOrStopTimer() // Der Aufruf
-                        }
-                    },
-                    enabled = TimerManager.canStartOrStop(),
-                    // Hier die Farben für den jeweiligen Zustand (Start vs. Stop) anpassen
-                    // Die enabledBackgroundColor und enabledContentColor werden von TimerActionButton
-                    // für den AKTIVIERTEN Zustand des KNOPFES verwendet.
-                    // Wenn der Knopf disabled ist, greift die Logik in TimerActionButton.
-                    enabledBackgroundColor = if (TimerManager.isTimerRunning) {
-                        colorResource(R.color.eco_accent_dark) // Farbe für "Stop"-Button
+                Row {
+                    if (!TimerManager.isTimerRunning) {
+                        TimerActionButton(
+                            text = "Start",
+                            onClick = {
+                                scope.launch {
+                                    TimerManager.startDeviceTimer(isStartMode)
+                                }
+                            },
+                            backgroundColor = colorResource(R.color.eco_green),
+                            buttonSize = 90.dp
+                        )
                     } else {
-                        colorResource(R.color.eco_green)       // Farbe für "Start"-Button
-                    },
-                    enabledContentColor = colorResource(R.color.white), // Bleibt für beide weiß
-                    buttonSize = 100.dp
-                )
+                        TimerActionButton(
+                            text = "Cancel",
+                            onClick = {
+                                scope.launch {
+                                    TimerManager.cancelTimer()
+                                }
+                            },
+                            backgroundColor = colorResource(R.color.eco_accent_dark),
+                            buttonSize = 90.dp
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = Color.Transparent,
+                                    shape = CircleShape
+                                )
+                                .padding(0.dp)
+                        ) {
+                            Switch(
+                                enabled = !TimerManager.isTimerRunning,
+                                checked = isStartMode,
+                                onCheckedChange = { isStartMode = it },
+                                modifier = Modifier.rotate(270f),
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = colorResource(R.color.white),
+                                    uncheckedThumbColor = colorResource(R.color.white),
+                                    checkedTrackColor = colorResource(R.color.eco_green),
+                                    uncheckedTrackColor = colorResource(R.color.eco_accent),
+                                    // these help neutralize extra effects
+                                    checkedBorderColor = Color.Transparent,
+                                    uncheckedBorderColor = Color.Transparent
+                                )
+                            )
+                        }
+                        Text(if (isStartMode) "On" else "Off")
+                    }
+                }
             }
-            Spacer(modifier = Modifier.height(24.dp)) // Dieser Spacer kann hier bleiben oder entfernt werden
+            Spacer(modifier = Modifier.height(120.dp))
         }
-        // --- ENDE TIMER-BEREICH ---
+
         // Control buttons section
         Column {
             // Main toggle button
             Button(
-                onClick = { onToggle(device) },
+                onClick = {
+                    if (!isToggling) {
+                        isToggling = true
+                        scope.launch {
+                            try {
+                                onToggle(device)
+                            } finally {
+                                isToggling = false
+                            }
+                        }
+                    }
+                },
+                enabled = !isToggling,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(60.dp),
@@ -330,11 +402,17 @@ fun DeviceControlPage(
                     } else {
                         colorResource(R.color.eco_green)  // Green for ON
                     },
-                    contentColor = colorResource(R.color.white)
+                    contentColor = colorResource(R.color.white),
+                    disabledContainerColor = if (device.isOn) {
+                        colorResource(R.color.eco_accent_dark).copy(alpha = 0.7f)  // Slightly faded orange
+                    } else {
+                        colorResource(R.color.eco_green).copy(alpha = 0.7f)  // Slightly faded green
+                    },
+                    disabledContentColor = colorResource(R.color.white).copy(alpha = 0.8f)  // Slightly faded white
                 )
             ) {
                 Text(
-                    text = if (device.isOn) "TURN OFF" else "TURN ON",
+                    text = if (isToggling) "PROCESSING..." else if (device.isOn) "TURN OFF" else "TURN ON",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -379,15 +457,14 @@ fun TimerLabel(text: String) {
 fun TimerInputField(
     value: String,
     onValueChange: (String) -> Unit,
-    label: String,
     modifier: Modifier = Modifier,
     imeAction: ImeAction = ImeAction.Next,
     keyboardActions: KeyboardActions = KeyboardActions.Default
 ) {
+    var isFocused by remember { mutableStateOf(false) }
     OutlinedTextField(
-        value = value,
+        value = if (isFocused && value == "00") "" else value,
         onValueChange = onValueChange,
-        label = { Text(label, fontSize = 10.sp, color = colorResource(R.color.eco_text)) },
         keyboardOptions = KeyboardOptions(
             keyboardType = KeyboardType.Number,
             imeAction = imeAction
@@ -396,7 +473,10 @@ fun TimerInputField(
         singleLine = true,
         modifier = modifier
             .width(75.dp)
-            .height(75.dp),
+            .height(75.dp)
+            .onFocusChanged { focusState ->
+                isFocused = focusState.isFocused
+            },
         textStyle = MaterialTheme.typography.headlineLarge.copy(
             textAlign = TextAlign.Center,
             color = colorResource(R.color.eco_text)
@@ -404,7 +484,8 @@ fun TimerInputField(
         colors = TextFieldDefaults.colors(
             focusedContainerColor = colorResource(R.color.eco_surface),
             unfocusedContainerColor = colorResource(R.color.eco_surface),
-            disabledContainerColor = colorResource(R.color.eco_surface),
+            focusedIndicatorColor = colorResource(R.color.eco_accent_dark),
+            unfocusedIndicatorColor = colorResource(R.color.eco_green),
         ),
         shape = MaterialTheme.shapes.medium
     )
@@ -416,26 +497,17 @@ fun TimerActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     buttonSize: Dp = 64.dp,
-    // Diese Farben werden für den ENABLED-Zustand verwendet.
-    // Material 3 leitet daraus die Farben für den DISABLED-Zustand ab.
-    enabledBackgroundColor: Color = colorResource(R.color.eco_green),
-    enabledContentColor: Color = colorResource(R.color.white),
-    enabled: Boolean = true
+    backgroundColor: Color = colorResource(R.color.eco_green),
+    contentColor: Color = colorResource(R.color.white),
 ) {
     Button(
         onClick = onClick,
-        enabled = enabled,
-        modifier = modifier.size(buttonSize),
-        shape = CircleShape,
+        modifier = modifier
+            .width(120.dp)
+            .height(48.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = enabledBackgroundColor, // Farbe für den Hintergrund, wenn enabled
-            contentColor = enabledContentColor,     // Farbe für den Text/Icon, wenn enabled
-            // Für disabledContainerColor und disabledContentColor:
-            // Keine explizite Zuweisung hier!
-            // Material 3 wird basierend auf enabledBackgroundColor und enabledContentColor
-            // sowie dem aktuellen Theme (onSurface etc.) passende Disabled-Farben generieren.
-            // Diese haben typischerweise einen geringeren Alpha-Wert, um Deaktivierung anzuzeigen,
-            // sind aber so gestaltet, dass sie sichtbar bleiben.
+            containerColor = backgroundColor,
+            contentColor = contentColor,
         ),
         contentPadding = PaddingValues(0.dp)
     ) {
@@ -444,8 +516,7 @@ fun TimerActionButton(
             fontSize = if (buttonSize > 80.dp) 18.sp else 12.sp,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
-            color = colorResource(R.color.eco_text)
-            // Die Textfarbe wird automatisch durch `contentColor` bzw. `disabledContentColor` gesteuert.
+            color = contentColor
         )
     }
 }

@@ -14,9 +14,9 @@
 #define RESET_PIN D0   // to GND on boot for reset
 
 // indicators
-#define RED D6
-#define GREEN D7
-#define BLUE D8
+#define RED D7
+#define GREEN D8
+#define BLUE D6
 
 // UDP
 #define BROADCAST_INTERVAL 1000    // 1sec

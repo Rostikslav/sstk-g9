@@ -1,4 +1,5 @@
 package com.sstk_g9.ecoswitch
+
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.Crossfade
@@ -19,6 +20,7 @@ import com.sstk_g9.ecoswitch.ui.DeviceControlPage
 import com.sstk_g9.ecoswitch.ui.ConnectionPage
 import com.sstk_g9.ecoswitch.logic.ConnectionManager
 import com.sstk_g9.ecoswitch.logic.PowerManager
+import com.sstk_g9.ecoswitch.logic.TimerManager
 import com.sstk_g9.ecoswitch.model.EcoSwitch
 
 
@@ -39,37 +41,30 @@ fun EcoSwitchApp() {
             scope.launch {
                 PowerManager.checkDeviceStatus(savedDevice)?.let { updatedDevice ->
                     device = updatedDevice
+                    TimerManager.sync(updatedDevice)
                 }
             }
         }
     }
 
     Crossfade(
-        targetState = device,
+        targetState = device?.isConnected == true,
         modifier = Modifier.fillMaxSize(),
         animationSpec = tween(300, easing = EaseInOutCubic),
         label = "PageTransition"
-    ) { currentDevice -> // targetState
-        if (currentDevice?.isConnected == true) {
+    ) { connected -> // targetState
+        if (connected && device != null) {
             // Connected device - show control page
             DeviceControlPage(
-                device = currentDevice,
+                device = device!!,
                 onToggle = { selectedDevice ->
-                    scope.launch {
-                        PowerManager.toggleDevice(selectedDevice)?.let { updatedDevice ->
-                            device = updatedDevice
-                        } ?: run {
-                            Toast.makeText(
-                                context,
-                                "Failed to toggle device",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
+                    PowerManager.toggleDevice(selectedDevice).let { updatedDevice ->
+                        device = updatedDevice
                     }
                 },
                 onDisconnect = {
                     scope.launch {
-                        if(ConnectionManager.disconnect(currentDevice, prefs))  device = null
+                        if (ConnectionManager.disconnect(device!!, prefs)) device = null
                         else Toast.makeText(context, "Disconnect failed", Toast.LENGTH_SHORT).show()
                     }
                 },
