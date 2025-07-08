@@ -5,5 +5,7 @@ data class EcoSwitch(
     var token: String = "",
     var isConnected: Boolean = false,
     var isOn: Boolean = false,
-    var temperature: String = "N/A"
+    var temperature: String = "0.0",
+    var remainingSeconds: Int = 0,
+    var isTimerActive: Boolean = false
 )
