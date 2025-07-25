@@ -5,11 +5,11 @@ Dieses Repository enthält das Projekt im Rahmen des Moduls **Soft Skills und te
 ## 📌 Gruppe 9
 
 **Teilnehmer:innen:**
-- Vlada Kryvtsova
-- Emelie Lyhs
-- Rostyslav Petrenko
-- Maximilian Schmidt
-- Zinedin Zerarka
+- Vlada Kryvtsova (vlkkvl)
+- Emelie Lyhs (LuciaDC245)
+- Rostyslav Petrenko (Rostikslav)
+- Maximilian Schmidt (DerTafel)
+- Zinedin Zerarka (Shuvi12345)
 
 ## 📁 Struktur
 

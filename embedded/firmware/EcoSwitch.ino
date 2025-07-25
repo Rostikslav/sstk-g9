@@ -14,9 +14,9 @@
 #define RESET_PIN D0   // to GND on boot for reset
 
 // indicators
+#define BLUE D6
 #define RED D7
 #define GREEN D8
-#define BLUE D6
 
 // UDP
 #define BROADCAST_INTERVAL 1000    // 1sec
@@ -31,6 +31,7 @@
 ESP8266WebServer server(80);
 Ticker blinker;
 
+// udp broadcast
 unsigned long broadcastStart = 0;
 unsigned long lastBroadcast = 0;
 bool enableBroadcast = false;
@@ -42,13 +43,14 @@ Adafruit_BMP085 bmp;
 unsigned long temperatureLastRead = 0;
 unsigned long cooldownEnd = 0;
 bool cooldownMode = false;
+
 // ------ LED ------
 
 void toggle(uint8_t pin) {
     digitalWrite(pin, !digitalRead(pin));
 }
 
-void updateLedState() {
+void updateLedState() { // based on the switch state
     if (digitalRead(SWITCH_PIN)) {
         digitalWrite(RED, LOW);
         digitalWrite(GREEN, HIGH);
@@ -134,12 +136,13 @@ void handleToggleState() {
         }
         digitalWrite(SWITCH_PIN, HIGH);
         server.send(200, "text/plain", "ON");
-    } else if (state == "0") {
+    } else if (state == "0") { // allow turning off even in cooldown mode
         digitalWrite(SWITCH_PIN, LOW);
         server.send(200, "text/plain", "OFF");
     } else {
         server.send(400, "text/plain", "Invalid state. Use 1 or 0.");
     }
+
     updateLedState();
 }
 
@@ -229,13 +232,13 @@ void setup() {
     Serial.begin(115200);
     Serial.print('\n');
 
-    while (!bmp.begin()) {
+    while (!bmp.begin()) { // blink red if couldn't connect to the sensor
         toggle(RED);
         delay(300);
     }
     digitalWrite(RED, LOW);
 
-    blinker.attach(0.3, []() {
+    blinker.attach(0.3, []() { // blink blue while in setup mode
         toggle(BLUE);
     });
 
@@ -243,16 +246,16 @@ void setup() {
     EEPROM.begin(TOKEN_LENGTH);
 
     WiFiManager wm;
-    if (digitalRead(RESET_PIN) == 0) {
+    if (digitalRead(RESET_PIN) == 0) { // if reset held on boot
         Serial.println("Resetting WiFi and token...");
-        wm.resetSettings();
-        clearToken();
+        wm.resetSettings(); // forget network
+        clearToken(); // forget paired device
         ESP.restart();
     } else {
         Serial.println("No reset");
     }
 
-    if (!wm.autoConnect("EcoSwitch-Setup"))
+    if (!wm.autoConnect("EcoSwitch-Setup")) // try to auto-connect or open hotspot
         ESP.restart();
 
     loadToken();
@@ -265,8 +268,9 @@ void setup() {
     }
 
     blinker.detach();
-    udp.begin(UDP_PORT);
+    udp.begin(UDP_PORT); // udp setup
 
+    // server handlers
     server.on("/ping", handlePing);
     server.on("/setup", handleSetup);
     server.on("/status", handleState);
@@ -279,28 +283,31 @@ void setup() {
 
 void loop() {
     server.handleClient();
-    if (!bmp.begin()) {
-        digitalWrite(SWITCH_PIN, LOW);
+    if (!bmp.begin()) { // if sensor failure detected
+        digitalWrite(SWITCH_PIN, LOW); // turn off the switch
         updateLedState();
-        while (!bmp.begin()) {
-            server.handleClient();
-            toggle(RED);
+        while (!bmp.begin()) { // while sensor offline
+            server.handleClient(); // do not block incoming requests
+            toggle(RED); // blink red
             delay(300);
         }
         updateLedState();
     }
 
+    // udp broadcast condition
     if (enableBroadcast && millis() - broadcastStart < BROADCAST_DURATION && millis() - lastBroadcast > BROADCAST_INTERVAL) {
         sendIPBroadcast();
         lastBroadcast = millis();
     }
 
+    // timer state condition
     if (timerEnd && timerEnd < millis()) {
         timerEnd = 0;
         digitalWrite(SWITCH_PIN, timerAction ? HIGH : LOW);
         updateLedState();
     }
 
+    // temperature reading condition
     if (millis() - temperatureLastRead > TEMP_READ_INTERVAL) {
         temperatureLastRead = millis();
         if (!bmp.begin())
@@ -308,15 +315,16 @@ void loop() {
         float t = bmp.readTemperature();
         Serial.println(t);
 
-        if (!isnan(t) && t >= TEMP_CUTOFF) {
-            digitalWrite(SWITCH_PIN, LOW);
+        if (!isnan(t) && t >= TEMP_CUTOFF) { // if temperature too high
+            digitalWrite(SWITCH_PIN, LOW); // cut the power
             updateLedState();
-            cooldownMode = true;
-            timerEnd = 0;
-            cooldownEnd = millis() + COOLDOWN_DURATION;
+            cooldownMode = true; // enter cooldown mode
+            timerEnd = 0; // deactivate timer
+            cooldownEnd = millis() + COOLDOWN_DURATION; // set cooldown end time
         }
     }
 
+    // cooldown exit condition
     if (cooldownEnd && millis() > cooldownEnd) {
         cooldownEnd = 0;
         cooldownMode = false;
